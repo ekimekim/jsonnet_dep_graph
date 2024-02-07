@@ -1,5 +1,6 @@
 use jrsonnet_parser::*;
 use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Debug)]
 struct Analysis {
@@ -11,19 +12,21 @@ struct Analysis {
 	deep_deps: Vec<PathBuf>,
 }
 
-fn analyze_file(filepath: &Path) -> Result<Analysis, String> {
-	let contents = std::fs::read_to_string(filepath).map_err(|e|
-		format!("Failed to read {}: {}", filepath.display(), e)
-	)?;
+#[derive(Debug)]
+enum AnalysisError {
+	IOError(std::io::Error),
+	ParseError(ParseError),
+}
 
-	let settings = jrsonnet_parser::ParserSettings {
+fn analyze_file(filepath: &Path) -> Result<Analysis, AnalysisError> {
+	let contents = std::fs::read_to_string(filepath).map_err(|e| AnalysisError::IOError(e))?;
+
+	let settings = ParserSettings {
 		loc_data: false,
 		file_name: filepath.to_owned().into(),
 	};
 
-	let ast = jrsonnet_parser::parse(&contents, &settings).map_err(|e|
-		format!("Failed to parse {}: {}", filepath.display(), e)
-	)?;
+	let ast = parse(&contents, &settings).map_err(|e| AnalysisError::ParseError(e))?;
 
 	let mut analysis = Analysis::default();
 
@@ -166,11 +169,40 @@ fn scan_obj(analysis: &mut Analysis, obj: &ObjBody) {
 	}
 }
 
-fn main() -> Result<(), String> {
+fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Result<HashSet<PathBuf>, AnalysisError> {
+	let mut deps: HashSet<PathBuf> = HashSet::new();
+	let mut to_expand = vec![filename];
+	while let Some(filename) = to_expand.pop() {
+		// It's possible to have already seen this dep, if the dependency graph contains loops.
+		// In that case, don't expand to avoid infinite looping.
+		if deps.contains(filename) {
+			continue;
+		}
+		deps.insert(filename.to_owned());
+		{
+		if !cache.contains_key(filename) {
+			cache.insert(filename.to_owned(), analyze_file(filename)?);
+		}
+		}
+		let analysis = cache.get(filename).unwrap();
+		// leaf deps can be added immediately to the full set, and don't need to be expanded.
+		for leaf_dep in &analysis.leaf_deps {
+			deps.insert(leaf_dep.clone());
+		}
+		// deep deps go into the expand list.
+		for deep_dep in &analysis.deep_deps {
+			to_expand.push(deep_dep);
+		}
+	}
+	Ok(deps)
+}
+
+fn main() -> Result<(), AnalysisError> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
+	let mut cache: HashMap<PathBuf, Analysis> = HashMap::new();
 	for arg in &args {
-		let analysis = analyze_file(Path::new(arg))?;
-		println!("{}: {:?}", arg, analysis);
+		let deps = resolve_deps(&mut cache, Path::new(arg))?;
+		println!("{}: {:?}", arg, deps);
 	}
 	Ok(())
 }
