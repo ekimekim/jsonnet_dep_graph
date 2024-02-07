@@ -1,6 +1,7 @@
 use jrsonnet_parser::*;
 use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 
 #[derive(Default, Debug)]
 struct Analysis {
@@ -179,10 +180,15 @@ fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Resu
 			continue;
 		}
 		deps.insert(filename.clone());
-		if !cache.contains_key(&filename) {
-			cache.insert(filename.clone(), analyze_file(&filename)?);
-		}
-		let analysis = cache.get(&filename).unwrap();
+		// We can't just use or_insert_with() because analyse_file may error,
+		// so we need to do it the long way.
+		let analysis = match cache.entry(filename) {
+			Entry::Occupied(entry) => entry.into_mut(),
+			Entry::Vacant(entry) => {
+				let analysis = analyze_file(entry.key())?;
+				entry.insert(analysis)
+			}
+		};
 		// leaf deps can be added immediately to the full set, and don't need to be expanded.
 		for leaf_dep in &analysis.leaf_deps {
 			deps.insert(leaf_dep.clone());
