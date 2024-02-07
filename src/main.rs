@@ -169,9 +169,9 @@ fn scan_obj(analysis: &mut Analysis, obj: &ObjBody) {
 	}
 }
 
-fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: PathBuf) -> Result<HashSet<PathBuf>, AnalysisError> {
+fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Result<HashSet<PathBuf>, AnalysisError> {
 	let mut deps: HashSet<PathBuf> = HashSet::new();
-	let mut to_expand = vec![filename];
+	let mut to_expand = vec![filename.to_owned()];
 	while let Some(filename) = to_expand.pop() {
 		// It's possible to have already seen this dep, if the dependency graph contains loops.
 		// In that case, don't expand to avoid infinite looping.
@@ -179,10 +179,8 @@ fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: PathBuf) -> Re
 			continue;
 		}
 		deps.insert(filename.clone());
-		{
 		if !cache.contains_key(&filename) {
 			cache.insert(filename.clone(), analyze_file(&filename)?);
-		}
 		}
 		let analysis = cache.get(&filename).unwrap();
 		// leaf deps can be added immediately to the full set, and don't need to be expanded.
@@ -201,7 +199,7 @@ fn main() -> Result<(), AnalysisError> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let mut cache: HashMap<PathBuf, Analysis> = HashMap::new();
 	for arg in &args {
-		let deps = resolve_deps(&mut cache, Path::new(arg).to_owned())?;
+		let deps = resolve_deps(&mut cache, Path::new(arg))?;
 		println!("{}: {:?}", arg, deps);
 	}
 	Ok(())
