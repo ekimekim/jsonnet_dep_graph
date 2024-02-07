@@ -28,78 +28,87 @@ fn analyze_file(filepath: &Path) -> Result<Analysis, String> {
 	)?;
 
 	let mut analysis = Analysis::default();
-
-	scan_ast(&mut analysis, &ast);
+	// Path should always have a parent given we managed to open it as a file earlier, so it
+	// can't be a directory or "".
+	let base = filepath.parent().unwrap();
+	scan_ast(base, &mut analysis, &ast);
 
 	Ok(analysis)
 }
 
-fn scan_ast(analysis: &mut Analysis, expr: &LocExpr) {
+fn add_path(base: &Path, paths: &mut Vec<PathBuf>, path: &Path) {
+	let path = base.join(path); // resolve to absolute path
+	if !paths.contains(&path) {
+		paths.push(path);
+	}
+}
+
+fn scan_ast(base: &Path, analysis: &mut Analysis, expr: &LocExpr) {
 	match &*expr.0 {
 		// Base cases: We found actual imports!
-		Expr::Import(path) => analysis.deep_deps.push(path.clone()),
-		Expr::ImportStr(path) => analysis.leaf_deps.push(path.clone()),
+		Expr::Import(path) => add_path(base, &mut analysis.deep_deps, &path),
+		Expr::ImportStr(path) => add_path(base, &mut analysis.leaf_deps, &path),
 		// Otherwise, recurse if needed
-		Expr::Arr(exprs) => for expr in exprs { scan_ast(analysis, expr) },
+		Expr::Arr(exprs) => for expr in exprs { scan_ast(base, analysis, expr) },
 		Expr::ArrComp(expr, compspecs) => {
-			scan_ast(analysis, expr);
-			scan_compspecs(analysis, compspecs);
+			scan_ast(base, analysis, expr);
+			scan_compspecs(base, analysis, compspecs);
 		},
-		Expr::Obj(obj) => scan_obj(analysis, obj),
+		Expr::Obj(obj) => scan_obj(base, analysis, obj),
 		Expr::ObjExtend(expr, obj) => {
-			scan_ast(analysis, expr);
-			scan_obj(analysis, obj);
+			scan_ast(base, analysis, expr);
+			scan_obj(base, analysis, obj);
 		},
-		Expr::Parened(expr) => scan_ast(analysis, expr),
-		Expr::UnaryOp(_, expr) => scan_ast(analysis, expr),
+		Expr::Parened(expr) => scan_ast(base, analysis, expr),
+		Expr::UnaryOp(_, expr) => scan_ast(base, analysis, expr),
 		Expr::BinaryOp(expr_a, _, expr_b) => {
-			scan_ast(analysis, expr_a);
-			scan_ast(analysis, expr_b);
+			scan_ast(base, analysis, expr_a);
+			scan_ast(base, analysis, expr_b);
 		},
 		Expr::AssertExpr(AssertStmt(expr_a, maybe_expr_b), expr_c) => {
-			scan_ast(analysis, expr_a);
+			scan_ast(base, analysis, expr_a);
 			if let Some(expr) = maybe_expr_b {
-				scan_ast(analysis, expr);
+				scan_ast(base, analysis, expr);
 			}
-			scan_ast(analysis, expr_c);
+			scan_ast(base, analysis, expr_c);
 		},
 		Expr::LocalExpr(bindspecs, expr) => {
 			for bindspec in bindspecs {
-				scan_bindspec(analysis, bindspec);
+				scan_bindspec(base, analysis, bindspec);
 			}
-			scan_ast(analysis, expr);
+			scan_ast(base, analysis, expr);
 		},
-		Expr::ErrorStmt(expr) => scan_ast(analysis, expr),
+		Expr::ErrorStmt(expr) => scan_ast(base, analysis, expr),
 		Expr::Apply(expr, args, _) => {
-			scan_ast(analysis, expr);
+			scan_ast(base, analysis, expr);
 			for Arg(_, expr) in &args.0 {
-				scan_ast(analysis, expr);
+				scan_ast(base, analysis, expr);
 			}
 		},
 		Expr::Index(expr_a, expr_b) => {
-			scan_ast(analysis, expr_a);
-			scan_ast(analysis, expr_b);
+			scan_ast(base, analysis, expr_a);
+			scan_ast(base, analysis, expr_b);
 		},
 		Expr::Function(params, expr) => {
 			for Param(_, maybe_expr) in &*params.0 {
 				if let Some(expr) = maybe_expr {
-					scan_ast(analysis, expr);
+					scan_ast(base, analysis, expr);
 				}
 			}
-			scan_ast(analysis, expr);
+			scan_ast(base, analysis, expr);
 		},
 		Expr::IfElse{cond, cond_then, cond_else} => {
-			scan_ast(analysis, &cond.0);
-			scan_ast(analysis, cond_then);
+			scan_ast(base, analysis, &cond.0);
+			scan_ast(base, analysis, cond_then);
 			if let Some(expr) = cond_else {
-				scan_ast(analysis, expr);
+				scan_ast(base, analysis, expr);
 			}
 		},
 		Expr::Slice(expr, SliceDesc{start, end, step}) => {
-			scan_ast(analysis, expr);
+			scan_ast(base, analysis, expr);
 			for maybe_expr in [start, end, step] {
 				if let Some(expr) = maybe_expr {
-					scan_ast(analysis, expr);
+					scan_ast(base, analysis, expr);
 				}
 			}
 		},
@@ -108,28 +117,28 @@ fn scan_ast(analysis: &mut Analysis, expr: &LocExpr) {
 	}
 }
 
-fn scan_compspecs(analysis: &mut Analysis, compspecs: &[CompSpec]) {
+fn scan_compspecs(base: &Path, analysis: &mut Analysis, compspecs: &[CompSpec]) {
 	for compspec in compspecs {
 		match compspec {
-			CompSpec::IfSpec(data) => scan_ast(analysis, &data.0),
-			CompSpec::ForSpec(data) => scan_ast(analysis, &data.1),
+			CompSpec::IfSpec(data) => scan_ast(base, analysis, &data.0),
+			CompSpec::ForSpec(data) => scan_ast(base, analysis, &data.1),
 		}
 	}
 }
 
-fn scan_bindspec(analysis: &mut Analysis, bindspec: &BindSpec) {
+fn scan_bindspec(base: &Path, analysis: &mut Analysis, bindspec: &BindSpec) {
 	let BindSpec{params, value, ..} = bindspec;
 	if let Some(params) = params {
 		for Param(_, maybe_expr) in &*params.0 {
 			if let Some(expr) = maybe_expr {
-				scan_ast(analysis, expr);
+				scan_ast(base, analysis, expr);
 			}
 		}
 	}
-	scan_ast(analysis, value);
+	scan_ast(base, analysis, value);
 }
 
-fn scan_obj(analysis: &mut Analysis, obj: &ObjBody) {
+fn scan_obj(base: &Path, analysis: &mut Analysis, obj: &ObjBody) {
 	match obj {
 		ObjBody::MemberList(members) => {
 			for member in members {
@@ -137,33 +146,33 @@ fn scan_obj(analysis: &mut Analysis, obj: &ObjBody) {
 					Member::Field(FieldMember{name, params, value, ..}) => {
 						match name {
 							FieldName::Fixed(_) => (),
-							FieldName::Dyn(expr) => scan_ast(analysis, expr),
+							FieldName::Dyn(expr) => scan_ast(base, analysis, expr),
 						}
 						if let Some(params) = params {
 							for Param(_, maybe_expr) in &*params.0 {
 								if let Some(expr) = maybe_expr {
-									scan_ast(analysis, expr);
+									scan_ast(base, analysis, expr);
 								}
 							}
 						}
-						scan_ast(analysis, value);
+						scan_ast(base, analysis, value);
 					},
-					Member::BindStmt(bindspec) => scan_bindspec(analysis, bindspec),
+					Member::BindStmt(bindspec) => scan_bindspec(base, analysis, bindspec),
 					Member::AssertStmt(AssertStmt(expr, maybe_expr)) => {
-						scan_ast(analysis, expr);
+						scan_ast(base, analysis, expr);
 						if let Some(expr) = maybe_expr {
-							scan_ast(analysis, expr);
+							scan_ast(base, analysis, expr);
 						}
 					},
 				}
 			}
 		},
 		ObjBody::ObjComp(ObjComp{pre_locals, key, value, post_locals, compspecs}) => {
-			for bindspec in pre_locals { scan_bindspec(analysis, bindspec); }
-			scan_ast(analysis, key);
-			scan_ast(analysis, value);
-			for bindspec in post_locals { scan_bindspec(analysis, bindspec); }
-			scan_compspecs(analysis, compspecs);
+			for bindspec in pre_locals { scan_bindspec(base, analysis, bindspec); }
+			scan_ast(base, analysis, key);
+			scan_ast(base, analysis, value);
+			for bindspec in post_locals { scan_bindspec(base, analysis, bindspec); }
+			scan_compspecs(base, analysis, compspecs);
 		},
 	}
 }
@@ -204,7 +213,8 @@ fn main() -> Result<(), String> {
 	let mut cache: HashMap<PathBuf, Analysis> = HashMap::new();
 	for arg in &args {
 		let deps = resolve_deps(&mut cache, Path::new(arg))?;
-		println!("{}: {:?}", arg, deps);
+		let as_str: Vec<_> = deps.iter().map(|p| p.to_string_lossy()).collect();
+		println!("{}: {}", arg, as_str.join(" "));
 	}
 	Ok(())
 }
