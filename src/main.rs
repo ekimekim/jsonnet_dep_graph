@@ -208,7 +208,7 @@ fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Resu
 	Ok(deps)
 }
 
-fn main() -> Result<(), String> {
+fn inner_main() -> Result<(), String> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let mut cache: HashMap<PathBuf, Analysis> = HashMap::new();
 	for arg in &args {
@@ -217,4 +217,14 @@ fn main() -> Result<(), String> {
 		println!("{}: {}", arg, as_str.join(" "));
 	}
 	Ok(())
+}
+
+fn main() -> std::process::ExitCode {
+	match inner_main() {
+		Ok(()) => 0,
+		Err(e) => {
+			println!("{}", e);
+			1
+		}
+	}.into()
 }
