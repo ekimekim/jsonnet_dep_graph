@@ -169,29 +169,29 @@ fn scan_obj(analysis: &mut Analysis, obj: &ObjBody) {
 	}
 }
 
-fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Result<HashSet<PathBuf>, AnalysisError> {
+fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: PathBuf) -> Result<HashSet<PathBuf>, AnalysisError> {
 	let mut deps: HashSet<PathBuf> = HashSet::new();
 	let mut to_expand = vec![filename];
 	while let Some(filename) = to_expand.pop() {
 		// It's possible to have already seen this dep, if the dependency graph contains loops.
 		// In that case, don't expand to avoid infinite looping.
-		if deps.contains(filename) {
+		if deps.contains(&filename) {
 			continue;
 		}
-		deps.insert(filename.to_owned());
+		deps.insert(filename.clone());
 		{
-		if !cache.contains_key(filename) {
-			cache.insert(filename.to_owned(), analyze_file(filename)?);
+		if !cache.contains_key(&filename) {
+			cache.insert(filename.clone(), analyze_file(&filename)?);
 		}
 		}
-		let analysis = cache.get(filename).unwrap();
+		let analysis = cache.get(&filename).unwrap();
 		// leaf deps can be added immediately to the full set, and don't need to be expanded.
 		for leaf_dep in &analysis.leaf_deps {
 			deps.insert(leaf_dep.clone());
 		}
 		// deep deps go into the expand list.
 		for deep_dep in &analysis.deep_deps {
-			to_expand.push(deep_dep);
+			to_expand.push(deep_dep.clone());
 		}
 	}
 	Ok(deps)
@@ -201,7 +201,7 @@ fn main() -> Result<(), AnalysisError> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let mut cache: HashMap<PathBuf, Analysis> = HashMap::new();
 	for arg in &args {
-		let deps = resolve_deps(&mut cache, Path::new(arg))?;
+		let deps = resolve_deps(&mut cache, Path::new(arg).to_owned())?;
 		println!("{}: {:?}", arg, deps);
 	}
 	Ok(())
