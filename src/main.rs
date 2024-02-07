@@ -223,7 +223,7 @@ fn main() -> std::process::ExitCode {
 	match inner_main() {
 		Ok(()) => 0,
 		Err(e) => {
-			println!("{}", e);
+			eprintln!("{}", e);
 			1
 		}
 	}.into()
