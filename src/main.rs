@@ -13,21 +13,19 @@ struct Analysis {
 	deep_deps: Vec<PathBuf>,
 }
 
-#[derive(Debug)]
-enum AnalysisError {
-	IOError(std::io::Error),
-	ParseError(ParseError),
-}
-
-fn analyze_file(filepath: &Path) -> Result<Analysis, AnalysisError> {
-	let contents = std::fs::read_to_string(filepath).map_err(|e| AnalysisError::IOError(e))?;
+fn analyze_file(filepath: &Path) -> Result<Analysis, String> {
+	let contents = std::fs::read_to_string(filepath).map_err(|e|
+		format!("Failed to read {}: {}", filepath.display(), e)
+	)?;
 
 	let settings = ParserSettings {
 		loc_data: false,
 		file_name: filepath.to_owned().into(),
 	};
 
-	let ast = parse(&contents, &settings).map_err(|e| AnalysisError::ParseError(e))?;
+	let ast = parse(&contents, &settings).map_err(|e|
+		format!("Failed to parse {}: {}", filepath.display(), e)
+	)?;
 
 	let mut analysis = Analysis::default();
 
@@ -170,7 +168,7 @@ fn scan_obj(analysis: &mut Analysis, obj: &ObjBody) {
 	}
 }
 
-fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Result<HashSet<PathBuf>, AnalysisError> {
+fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Result<HashSet<PathBuf>, String> {
 	let mut deps: HashSet<PathBuf> = HashSet::new();
 	let mut to_expand = vec![filename.to_owned()];
 	while let Some(filename) = to_expand.pop() {
@@ -201,7 +199,7 @@ fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Resu
 	Ok(deps)
 }
 
-fn main() -> Result<(), AnalysisError> {
+fn main() -> Result<(), String> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let mut cache: HashMap<PathBuf, Analysis> = HashMap::new();
 	for arg in &args {
