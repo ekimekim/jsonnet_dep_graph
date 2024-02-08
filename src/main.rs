@@ -209,12 +209,27 @@ fn resolve_deps(cache: &mut HashMap<PathBuf, Analysis>, filename: &Path) -> Resu
 }
 
 fn inner_main() -> Result<(), String> {
-	let args: Vec<_> = std::env::args().skip(1).collect();
+	// Argument parsing
+	let mut files: Vec<PathBuf> = Vec::new();
+	let mut jpaths: Vec<PathBuf> = Vec::new();
+	let mut args = std::env::args();
+	let progname = args.next().ok_or("Missing arg 0")?;
+	while let Some(arg) = args.next() {
+		match arg.as_str() {
+			"--help" => return Err(format!("Usage: {} {{FILENAME | --jpath PATH}}", progname)),
+			"--jpath" => {
+				let path = args.next().ok_or("Missing argument to --jpath")?;
+				jpaths.push(path.into());
+			},
+			filepath => files.push(filepath.into()),
+		}
+	}
+
 	let mut cache: HashMap<PathBuf, Analysis> = HashMap::new();
-	for arg in &args {
-		let deps = resolve_deps(&mut cache, Path::new(arg))?;
+	for filepath in files {
+		let deps = resolve_deps(&mut cache, &filepath)?;
 		let as_str: Vec<_> = deps.iter().map(|p| p.to_string_lossy()).collect();
-		println!("{}: {}", arg, as_str.join(" "));
+		println!("{}: {}", filepath.display(), as_str.join(" "));
 	}
 	Ok(())
 }
